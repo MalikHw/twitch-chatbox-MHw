@@ -1,3 +1,5 @@
+@import url("https://www.nerdfonts.com/assets/css/webfont.css");
+
 body {
     font-family: 'Arial', 'Helvetica', sans-serif;
     margin: 0;
@@ -48,38 +50,27 @@ body {
     text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.5);
 }
 
-.badge {
-    font-weight: bold;
-    font-size: 14px;
-    padding: 2px 6px;
-    border-radius: 3px;
+/* NerdFont icon badges */
+.message i {
     margin-left: 4px;
-    display: inline-block;
+    font-size: 16px;
     text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.7);
 }
 
-.badge.broadcaster {
+.nf-fa-gear {
     color: #E91916;
-    background: rgba(233, 25, 22, 0.2);
-    border: 1px solid #E91916;
 }
 
-.badge.moderator {
+.nf-fa-user_gear {
     color: #00AD03;
-    background: rgba(0, 173, 3, 0.2);
-    border: 1px solid #00AD03;
 }
 
-.badge.subscriber {
+.nf-seti-sublime {
     color: #6441A4;
-    background: rgba(100, 65, 164, 0.2);
-    border: 1px solid #6441A4;
 }
 
-.badge.vip {
+.nf-md-crown {
     color: #E005B9;
-    background: rgba(224, 5, 185, 0.2);
-    border: 1px solid #E005B9;
 }
 
 /* Scrollbar styling */
