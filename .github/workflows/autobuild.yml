@@ -6,100 +6,129 @@ on:
   workflow_dispatch:
 
 jobs:
-  build:
-    name: Build for ${{ matrix.os }}
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        include:
-          - os: ubuntu-latest
-            output: twitchchat-linux
-            artifact_name: twitchchat-linux
-          - os: windows-latest
-            output: twitchchat.exe
-            artifact_name: twitchchat-windows
-          - os: macos-latest
-            output: twitchchat-macos
-            artifact_name: twitchchat-macos
+  build-linux:
+    name: Build for Linux
+    runs-on: ubuntu-latest
 
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Set up build environment (Ubuntu)
-      if: matrix.os == 'ubuntu-latest'
+    - name: Set up build environment
       run: |
         sudo apt-get update
         sudo apt-get install -y gcc make
 
-    - name: Set up build environment (Windows)
-      if: matrix.os == 'windows-latest'
+    - name: Build
       run: |
-        choco install mingw -y
-        refreshenv
-
-    - name: Set up build environment (macOS)
-      if: matrix.os == 'macos-latest'
-      run: |
-        brew install gcc
-
-    - name: Build (Linux)
-      if: matrix.os == 'ubuntu-latest'
-      run: |
-        gcc -o ${{ matrix.output }} twitchchat.c -pthread -Wall
-        chmod +x ${{ matrix.output }}
-
-    - name: Build (Windows)
-      if: matrix.os == 'windows-latest'
-      run: |
-        gcc -o ${{ matrix.output }} twitchchat.c -lws2_32 -lpthread -Wall
-      shell: bash
-
-    - name: Build (macOS)
-      if: matrix.os == 'macos-latest'
-      run: |
-        gcc -o ${{ matrix.output }} twitchchat.c -pthread -Wall
-        chmod +x ${{ matrix.output }}
+        gcc -o twitchchat-linux twitchchat.c -pthread -Wall
+        chmod +x twitchchat-linux
 
     - name: Create distribution package
       run: |
         mkdir -p dist
-        cp ${{ matrix.output }} dist/
+        cp twitchchat-linux dist/
+        cp twitchchat.html dist/
+        cp twitchchat.css dist/
+
+    - name: Create ZIP archive
+      run: |
+        cd dist
+        zip -r ../twitchchat-linux.zip *
+
+    - name: Upload artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: twitchchat-linux
+        path: twitchchat-linux.zip
+
+  build-windows:
+    name: Build for Windows
+    runs-on: windows-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up build environment
+      run: |
+        choco install mingw -y
+        refreshenv
+
+    - name: Build
+      run: |
+        gcc -o twitchchat.exe twitchchat.c -lws2_32 -lpthread -Wall
+      shell: bash
+
+    - name: Create distribution package
+      run: |
+        mkdir -p dist
+        cp twitchchat.exe dist/
         cp twitchchat.html dist/
         cp twitchchat.css dist/
       shell: bash
 
-    - name: Create ZIP archive (Linux/macOS)
-      if: matrix.os != 'windows-latest'
+    - name: Create ZIP archive
       run: |
         cd dist
-        zip -r ../${{ matrix.artifact_name }}.zip *
-      shell: bash
-
-    - name: Create ZIP archive (Windows)
-      if: matrix.os == 'windows-latest'
-      run: |
-        cd dist
-        7z a ../${{ matrix.artifact_name }}.zip *
+        7z a ../twitchchat-windows.zip *
       shell: bash
 
     - name: Upload artifact
       uses: actions/upload-artifact@v4
       with:
-        name: ${{ matrix.artifact_name }}
-        path: ${{ matrix.artifact_name }}.zip
+        name: twitchchat-windows
+        path: twitchchat-windows.zip
+
+  build-macos:
+    name: Build for macOS
+    runs-on: macos-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up build environment
+      run: |
+        brew install gcc
+
+    - name: Build
+      run: |
+        gcc -o twitchchat-macos twitchchat.c -pthread -Wall
+        chmod +x twitchchat-macos
+
+    - name: Create distribution package
+      run: |
+        mkdir -p dist
+        cp twitchchat-macos dist/
+        cp twitchchat.html dist/
+        cp twitchchat.css dist/
+
+    - name: Create ZIP archive
+      run: |
+        cd dist
+        zip -r ../twitchchat-macos.zip *
+
+    - name: Upload artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: twitchchat-macos
+        path: twitchchat-macos.zip
 
   release:
-    needs: build
+    needs: [build-linux, build-windows, build-macos]
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    # This will run even if one of the builds fails
+    if: always()
 
     steps:
     - name: Download all artifacts
       uses: actions/download-artifact@v4
       with:
         path: ./artifacts
+      continue-on-error: true
 
     - name: Get current date and time
       id: date
@@ -110,10 +139,20 @@ jobs:
     - name: Move artifacts to release directory
       run: |
         mkdir -p release
-        find ./artifacts -name "*.zip" -exec mv {} ./release/ \;
+        find ./artifacts -name "*.zip" -exec mv {} ./release/ \; || true
         ls -la ./release
 
+    - name: Check if any artifacts exist
+      id: check_artifacts
+      run: |
+        if [ "$(ls -A ./release)" ]; then
+          echo "has_artifacts=true" >> $GITHUB_OUTPUT
+        else
+          echo "has_artifacts=false" >> $GITHUB_OUTPUT
+        fi
+
     - name: Create Release
+      if: steps.check_artifacts.outputs.has_artifacts == 'true'
       uses: softprops/action-gh-release@v1
       with:
         tag_name: ${{ steps.date.outputs.tag }}
@@ -123,7 +162,7 @@ jobs:
           
           Automated build for all platforms.
           
-          ### Downloads:
+          ### Downloads (check what's available):
           - `twitchchat-windows.zip` - Windows (x64)
           - `twitchchat-linux.zip` - Linux (x64)
           - `twitchchat-macos.zip` - macOS (x64)
@@ -148,5 +187,6 @@ jobs:
           ./release/*.zip
         draft: false
         prerelease: false
+        fail_on_unmatched_files: false
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
