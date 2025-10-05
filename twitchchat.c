@@ -1,16 +1,28 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <netdb.h>
-#include <pthread.h>
 #include <time.h>
-#include <arpa/inet.h>
-#include <termios.h>
-#include <fcntl.h>
 #include <ctype.h>
+#include <signal.h>
+#include <sys/stat.h>
+
+#ifdef _WIN32
+    #include <winsock2.h>
+    #include <ws2tcpip.h>
+    #include <windows.h>
+    #pragma comment(lib, "ws2_32.lib")
+    #define close closesocket
+    typedef int socklen_t;
+#else
+    #include <unistd.h>
+    #include <sys/socket.h>
+    #include <netinet/in.h>
+    #include <netdb.h>
+    #include <arpa/inet.h>
+    #include <termios.h>
+    #include <fcntl.h>
+    #include <pthread.h>
+#endif
 
 #define IRC_SERVER "irc.chat.twitch.tv"
 #define IRC_PORT 6667
@@ -41,7 +53,12 @@ typedef struct {
 } ChatBuffer;
 
 // Global variables (yeah, globals are kinda shit but fuck it, this works)
+#ifdef _WIN32
+SOCKET sockfd = INVALID_SOCKET;
+#else
 int sockfd = -1;
+#endif
+
 ChatBuffer chat_buffer = {.count = 0};
 int running = 1;
 int display_mode = 0; // 0 = terminal, 1 = web server
@@ -49,6 +66,19 @@ char target_channel[MAX_USERNAME];
 char my_nickname[MAX_USERNAME];
 char* blacklist_words[MAX_BLACKLIST_WORDS];
 int blacklist_count = 0;
+
+#ifdef _WIN32
+HANDLE mutex;
+#define pthread_mutex_t HANDLE
+#define pthread_mutex_lock(m) WaitForSingleObject(*m, INFINITE)
+#define pthread_mutex_unlock(m) ReleaseMutex(*m)
+#define pthread_mutex_init(m, attr) (*m = CreateMutex(NULL, FALSE, NULL))
+#define pthread_t HANDLE
+#define pthread_create(thread, attr, func, arg) ((*thread = CreateThread(NULL, 0, (LPTHREAD_START_ROUTINE)func, arg, 0, NULL)) == NULL)
+#define pthread_join(thread, retval) WaitForSingleObject(thread, INFINITE)
+#define sleep(x) Sleep((x) * 1000)
+#define usleep(x) Sleep((x) / 1000)
+#endif
 
 // Function declarations
 int connect_to_twitch(const char* oauth, const char* nickname, const char* channel);
@@ -67,7 +97,11 @@ void cleanup_and_exit();
 void send_chat_message(const char* message);
 
 void init_chat_buffer() {
+#ifdef _WIN32
+    mutex = CreateMutex(NULL, FALSE, NULL);
+#else
     pthread_mutex_init(&chat_buffer.lock, NULL);
+#endif
     chat_buffer.count = 0;
 }
 
@@ -151,7 +185,9 @@ void save_config(const char* oauth, const char* nickname) {
     fclose(f);
     
     // Make it readable only by user (security and shit)
+#ifndef _WIN32
     chmod(CONFIG_FILE, 0600);
+#endif
 }
 
 // Load saved config (lazy mode activated)
@@ -333,11 +369,23 @@ void* input_thread(void* arg) {
 }
 
 int connect_to_twitch(const char* oauth, const char* nickname, const char* channel) {
+#ifdef _WIN32
+    WSADATA wsa;
+    if (WSAStartup(MAKEWORD(2, 2), &wsa) != 0) {
+        printf("WSAStartup failed\n");
+        return -1;
+    }
+#endif
+
     struct hostent* server;
     struct sockaddr_in serv_addr;
     
     sockfd = socket(AF_INET, SOCK_STREAM, 0);
+#ifdef _WIN32
+    if (sockfd == INVALID_SOCKET) {
+#else
     if (sockfd < 0) {
+#endif
         perror("Error opening socket, fuck");
         return -1;
     }
@@ -380,7 +428,11 @@ int connect_to_twitch(const char* oauth, const char* nickname, const char* chann
 }
 
 void display_terminal() {
+#ifdef _WIN32
+    system("cls");
+#else
     system("clear");
+#endif
     printf("=== Twitch Chat: #%s ===\n", target_channel);
     printf("(Press 'q' and Enter to quit)\n\n");
     
@@ -524,7 +576,11 @@ void* web_server_thread(void* arg) {
 void cleanup_and_exit() {
     printf("\n\nDisconnecting from Twitch IRC...\n");
     
+#ifdef _WIN32
+    if (sockfd != INVALID_SOCKET) {
+#else
     if (sockfd >= 0) {
+#endif
         // Send PART command to leave channel
         char part_msg[256];
         snprintf(part_msg, sizeof(part_msg), "PART #%s\r\n", target_channel);
@@ -537,6 +593,10 @@ void cleanup_and_exit() {
         usleep(500000); // Wait 500ms for messages to send
         close(sockfd);
     }
+    
+#ifdef _WIN32
+    WSACleanup();
+#endif
     
     // Free blacklist words (don't leak memory like a scrub)
     for (int i = 0; i < blacklist_count; i++) {
