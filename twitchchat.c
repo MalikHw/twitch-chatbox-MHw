@@ -1,7 +1,4 @@
-#ifdef _WIN32
-DWORD WINAPI web_server_thread(LPVOID arg) {
-#else
-void* web_server#include <stdio.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
@@ -67,7 +64,7 @@ int sockfd = -1;
 
 ChatBuffer chat_buffer = {.count = 0};
 int running = 1;
-int display_mode = 0; // 0 = terminal, 1 = web server
+int display_mode = 0;
 char target_channel[MAX_USERNAME];
 char my_nickname[MAX_USERNAME];
 char* blacklist_words[MAX_BLACKLIST_WORDS];
@@ -113,7 +110,6 @@ void load_blacklist() {
     blacklist_count = 0;
     
     while (fgets(line, sizeof(line), f) && blacklist_count < MAX_BLACKLIST_WORDS) {
-        // Remove newline, because fuck newlines
         line[strcspn(line, "\r\n")] = 0;
         if (strlen(line) > 0) {
             blacklist_words[blacklist_count] = strdup(line);
@@ -130,14 +126,13 @@ int is_blacklisted(const char* message) {
     char msg_lower[MAX_MESSAGE];
     strncpy(msg_lower, message, MAX_MESSAGE - 1);
     
-    // Convert to lowercase for comparison
     for (int i = 0; msg_lower[i]; i++) {
         msg_lower[i] = tolower(msg_lower[i]);
     }
     
     for (int i = 0; i < blacklist_count; i++) {
         if (strstr(msg_lower, blacklist_words[i])) {
-            return 1; // Found blacklisted word, fuck this message
+            return 1;
         }
     }
     return 0;
@@ -145,7 +140,6 @@ int is_blacklisted(const char* message) {
 
 void add_message(const char* username, const char* message, int is_broadcaster, 
                  int is_mod, int is_sub, int is_vip) {
-    // Don't add blacklisted messages (ain't nobody got time for that)
     if (is_blacklisted(message)) {
         return;
     }
@@ -157,7 +151,6 @@ void add_message(const char* username, const char* message, int is_broadcaster,
 #endif
     
     if (chat_buffer.count >= MAX_MESSAGES) {
-        // Shift messages (out with the old shit)
         memmove(&chat_buffer.messages[0], &chat_buffer.messages[1], 
                 sizeof(ChatMessage) * (MAX_MESSAGES - 1));
         chat_buffer.count = MAX_MESSAGES - 1;
@@ -191,7 +184,6 @@ void save_config(const char* oauth, const char* nickname) {
     fprintf(f, "%s\n%s\n", oauth, nickname);
     fclose(f);
     
-    // Make it readable only by user (security and shit)
 #ifndef _WIN32
     chmod(CONFIG_FILE, 0600);
 #endif
@@ -247,7 +239,6 @@ void extract_badges(const char* tags, int* is_broadcaster, int* is_mod,
 }
 
 void parse_message(const char* raw_msg) {
-    // Handle PING like a boss
     if (strncmp(raw_msg, "PING", 4) == 0) {
         char pong[256];
         snprintf(pong, sizeof(pong), "PONG %s\r\n", raw_msg + 5);
@@ -257,7 +248,6 @@ void parse_message(const char* raw_msg) {
     
     if (strstr(raw_msg, "PRIVMSG") == NULL) return;
     
-    // Extract tags (Twitch IRC is a pain in the ass)
     char* tags_end = strchr(raw_msg, ' ');
     if (!tags_end) return;
     
@@ -267,7 +257,6 @@ void parse_message(const char* raw_msg) {
     strncpy(tags, raw_msg, tags_len);
     tags[tags_len] = '\0';
     
-    // Extract username (who's talking this time?)
     char* user_start = strchr(tags_end + 1, ':');
     if (!user_start) return;
     user_start++;
@@ -281,7 +270,6 @@ void parse_message(const char* raw_msg) {
     strncpy(username, user_start, user_len);
     username[user_len] = '\0';
     
-    // Extract message (the actual content, finally)
     char* msg_start = strstr(user_end, "PRIVMSG");
     if (!msg_start) return;
     
@@ -293,13 +281,11 @@ void parse_message(const char* raw_msg) {
     strncpy(message, msg_start, MAX_MESSAGE - 1);
     message[MAX_MESSAGE - 1] = '\0';
     
-    // Remove \r\n (clean this shit up)
     char* newline = strchr(message, '\r');
     if (newline) *newline = '\0';
     newline = strchr(message, '\n');
     if (newline) *newline = '\0';
     
-    // Extract badges (show off those fancy icons)
     int is_broadcaster, is_mod, is_sub, is_vip;
     extract_badges(tags, &is_broadcaster, &is_mod, &is_sub, &is_vip);
     
@@ -341,14 +327,12 @@ void* read_chat_thread(void* arg) {
 #endif
 }
 
-// Send a message to chat (if you wanna talk back)
 void send_chat_message(const char* message) {
     char send_buffer[BUFFER_SIZE];
     snprintf(send_buffer, sizeof(send_buffer), "PRIVMSG #%s :%s\r\n", target_channel, message);
     send(sockfd, send_buffer, strlen(send_buffer), 0);
 }
 
-// Input thread for terminal mode (so you can type shit)
 #ifdef _WIN32
 DWORD WINAPI input_thread(LPVOID arg) {
 #else
@@ -357,9 +341,8 @@ void* input_thread(void* arg) {
     char input[MAX_MESSAGE];
     
     while (running && display_mode == 0) {
-        // Position cursor at bottom
-        printf("\033[%d;0H", 30); // Line 30
-        printf("\033[K"); // Clear line
+        printf("\033[%d;0H", 30);
+        printf("\033[K");
         printf("Type message (or 'q' to quit): ");
         fflush(stdout);
         
@@ -367,16 +350,13 @@ void* input_thread(void* arg) {
             break;
         }
         
-        // Remove newline
         input[strcspn(input, "\n")] = 0;
         
-        // Check for quit command
         if (strcmp(input, "q") == 0 || strcmp(input, "Q") == 0) {
             running = 0;
             break;
         }
         
-        // Send message if not empty
         if (strlen(input) > 0) {
             send_chat_message(input);
         }
@@ -429,7 +409,6 @@ int connect_to_twitch(const char* oauth, const char* nickname, const char* chann
         return -1;
     }
     
-    // Send authentication (let me in!)
     char auth[512];
     snprintf(auth, sizeof(auth), "PASS oauth:%s\r\n", oauth);
     send(sockfd, auth, strlen(auth), 0);
@@ -437,11 +416,9 @@ int connect_to_twitch(const char* oauth, const char* nickname, const char* chann
     snprintf(auth, sizeof(auth), "NICK %s\r\n", nickname);
     send(sockfd, auth, strlen(auth), 0);
     
-    // Request capabilities for tags (we want the fancy badges)
     char* caps = "CAP REQ :twitch.tv/tags twitch.tv/commands\r\n";
     send(sockfd, caps, strlen(caps), 0);
     
-    // Join channel (let's fucking goooo)
     snprintf(auth, sizeof(auth), "JOIN #%s\r\n", channel);
     send(sockfd, auth, strlen(auth), 0);
     
@@ -470,7 +447,7 @@ void display_terminal() {
         
         printf("\033[1;34m%s\033[0m", msg->username);
         
-        if (msg->is_broadcaster) printf(" \033[1;31m[BROADCASTER]\033[0m");
+        if (msg->is_broadcaster) printf(" \033[1;31m[B]\033[0m");
         if (msg->is_moderator) printf(" \033[1;32m[MOD]\033[0m");
         if (msg->is_subscriber) printf(" \033[1;35m[SUB]\033[0m");
         if (msg->is_vip) printf(" \033[1;33m[VIP]\033[0m");
@@ -541,7 +518,6 @@ void* web_server_thread(void* arg) {
         char request[1024];
         recv(new_socket, request, sizeof(request), 0);
         
-        // Check if requesting CSS file
         if (strstr(request, "GET /twitchchat.css")) {
             FILE* css_file = fopen(CSS_FILE, "r");
             if (css_file) {
@@ -556,7 +532,6 @@ void* web_server_thread(void* arg) {
                 send(new_socket, css_response, strlen(css_response), 0);
             }
         } else {
-            // Serve HTML with messages
             char response[8192];
             
 #ifdef _WIN32
@@ -568,12 +543,12 @@ void* web_server_thread(void* arg) {
             char messages_html[6144] = "";
             for (int i = 0; i < chat_buffer.count; i++) {
                 ChatMessage* msg = &chat_buffer.messages[i];
-                char badges[256] = "";
+                char badges[512] = "";
                 
-                if (msg->is_broadcaster) strcat(badges, "<span class=\"badge broadcaster\">B</span>");
-                if (msg->is_moderator) strcat(badges, "<span class=\"badge moderator\">MOD</span>");
-                if (msg->is_subscriber) strcat(badges, "<span class=\"badge subscriber\">SUB</span>");
-                if (msg->is_vip) strcat(badges, "<span class=\"badge vip\">VIP</span>");
+                if (msg->is_broadcaster) strcat(badges, "<i class=\"nf nf-fa-gear\"></i>");
+                if (msg->is_moderator) strcat(badges, "<i class=\"nf nf-fa-user_gear\"></i>");
+                if (msg->is_subscriber) strcat(badges, "<i class=\"nf nf-seti-sublime\"></i>");
+                if (msg->is_vip) strcat(badges, "<i class=\"nf nf-md-crown\"></i>");
                 
                 char msg_line[1024];
                 snprintf(msg_line, sizeof(msg_line),
@@ -588,7 +563,6 @@ void* web_server_thread(void* arg) {
             pthread_mutex_unlock(&chat_buffer.lock);
 #endif
             
-            // Read HTML template
             FILE* html_file = fopen(HTML_FILE, "r");
             char html_template[2048];
             if (html_file) {
@@ -596,7 +570,6 @@ void* web_server_thread(void* arg) {
                 html_template[html_size] = '\0';
                 fclose(html_file);
                 
-                // Insert messages into HTML
                 char* container_pos = strstr(html_template, "<!-- Messages will be inserted here -->");
                 if (container_pos) {
                     *container_pos = '\0';
@@ -609,7 +582,6 @@ void* web_server_thread(void* arg) {
                         messages_html);
                 }
             } else {
-                // Fallback if HTML file not found
                 snprintf(response, sizeof(response),
                     "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n"
                     "<!DOCTYPE html><html><head><meta http-equiv=\"refresh\" content=\"2\">"
@@ -625,10 +597,13 @@ void* web_server_thread(void* arg) {
     }
     
     close(server_fd);
+#ifdef _WIN32
+    return 0;
+#else
     return NULL;
+#endif
 }
 
-// Cleanup and properly disconnect (don't be a dick, say goodbye)
 void cleanup_and_exit() {
     printf("\n\nDisconnecting from Twitch IRC...\n");
     
@@ -637,16 +612,18 @@ void cleanup_and_exit() {
 #else
     if (sockfd >= 0) {
 #endif
-        // Send PART command to leave channel
         char part_msg[256];
         snprintf(part_msg, sizeof(part_msg), "PART #%s\r\n", target_channel);
         send(sockfd, part_msg, strlen(part_msg), 0);
         
-        // Send QUIT command
         char* quit_msg = "QUIT :Goodbye!\r\n";
         send(sockfd, quit_msg, strlen(quit_msg), 0);
         
-        usleep(500000); // Wait 500ms for messages to send
+#ifdef _WIN32
+        Sleep(500);
+#else
+        usleep(500000);
+#endif
         close(sockfd);
     }
     
@@ -654,7 +631,6 @@ void cleanup_and_exit() {
     WSACleanup();
 #endif
     
-    // Free blacklist words (don't leak memory like a scrub)
     for (int i = 0; i < blacklist_count; i++) {
         free(blacklist_words[i]);
     }
@@ -696,7 +672,6 @@ int main(int argc, char* argv[]) {
     int mode;
     int use_saved = 0;
     
-    // Check if we should use saved token
     if (argc == 1 || (argc > 1 && strcmp(argv[1], "--new-token") != 0)) {
         use_saved = load_config(oauth, nickname);
     }
@@ -747,7 +722,6 @@ int main(int argc, char* argv[]) {
     
     display_mode = (mode == 2) ? 1 : 0;
     
-    // Load blacklist (filter out the garbage)
     load_blacklist();
     
     init_chat_buffer();
@@ -760,18 +734,25 @@ int main(int argc, char* argv[]) {
     
     printf("Connected! Monitoring #%s\n\n", channel);
     
-    // Set up signal handler for cleanup
+#ifndef _WIN32
     signal(SIGINT, cleanup_and_exit);
+#endif
     
+#ifdef _WIN32
+    HANDLE chat_thread = CreateThread(NULL, 0, read_chat_thread, NULL, 0, NULL);
+#else
     pthread_t chat_thread;
     pthread_create(&chat_thread, NULL, read_chat_thread, NULL);
+#endif
     
     if (display_mode == 1) {
-        // Web server mode
+#ifdef _WIN32
+        HANDLE web_thread = CreateThread(NULL, 0, web_server_thread, NULL, 0, NULL);
+#else
         pthread_t web_thread;
         pthread_create(&web_thread, NULL, web_server_thread, NULL);
+#endif
         
-        // Simple input check for quit
         char input[10];
         while (running) {
             if (fgets(input, sizeof(input), stdin)) {
@@ -782,20 +763,39 @@ int main(int argc, char* argv[]) {
             }
         }
         
+#ifdef _WIN32
+        WaitForSingleObject(web_thread, INFINITE);
+#else
         pthread_join(web_thread, NULL);
+#endif
     } else {
-        // Terminal mode with input
+#ifdef _WIN32
+        HANDLE input_t = CreateThread(NULL, 0, input_thread, NULL, 0, NULL);
+#else
         pthread_t input_t;
         pthread_create(&input_t, NULL, input_thread, NULL);
+#endif
         
         while (running) {
+#ifdef _WIN32
+            Sleep(1000);
+#else
             sleep(1);
+#endif
         }
         
+#ifdef _WIN32
+        WaitForSingleObject(input_t, INFINITE);
+#else
         pthread_join(input_t, NULL);
+#endif
     }
     
+#ifdef _WIN32
+    WaitForSingleObject(chat_thread, INFINITE);
+#else
     pthread_join(chat_thread, NULL);
+#endif
     
     cleanup_and_exit();
     
