@@ -1,0 +1,152 @@
+name: Build and Release
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build for ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            output: twitchchat-linux
+            artifact_name: twitchchat-linux
+          - os: windows-latest
+            output: twitchchat.exe
+            artifact_name: twitchchat-windows
+          - os: macos-latest
+            output: twitchchat-macos
+            artifact_name: twitchchat-macos
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up build environment (Ubuntu)
+      if: matrix.os == 'ubuntu-latest'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y gcc make
+
+    - name: Set up build environment (Windows)
+      if: matrix.os == 'windows-latest'
+      run: |
+        choco install mingw -y
+        refreshenv
+
+    - name: Set up build environment (macOS)
+      if: matrix.os == 'macos-latest'
+      run: |
+        brew install gcc
+
+    - name: Build (Linux)
+      if: matrix.os == 'ubuntu-latest'
+      run: |
+        gcc -o ${{ matrix.output }} twitchchat.c -pthread -Wall
+        chmod +x ${{ matrix.output }}
+
+    - name: Build (Windows)
+      if: matrix.os == 'windows-latest'
+      run: |
+        gcc -o ${{ matrix.output }} twitchchat.c -lws2_32 -lpthread -Wall
+      shell: bash
+
+    - name: Build (macOS)
+      if: matrix.os == 'macos-latest'
+      run: |
+        gcc -o ${{ matrix.output }} twitchchat.c -pthread -Wall
+        chmod +x ${{ matrix.output }}
+
+    - name: Create distribution package
+      run: |
+        mkdir -p dist
+        cp ${{ matrix.output }} dist/
+        cp twitchchat.html dist/
+        cp twitchchat.css dist/
+      shell: bash
+
+    - name: Create ZIP archive (Linux/macOS)
+      if: matrix.os != 'windows-latest'
+      run: |
+        cd dist
+        zip -r ../${{ matrix.artifact_name }}.zip *
+      shell: bash
+
+    - name: Create ZIP archive (Windows)
+      if: matrix.os == 'windows-latest'
+      run: |
+        cd dist
+        7z a ../${{ matrix.artifact_name }}.zip *
+      shell: bash
+
+    - name: Upload artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ matrix.artifact_name }}
+        path: ${{ matrix.artifact_name }}.zip
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+    - name: Download all artifacts
+      uses: actions/download-artifact@v4
+      with:
+        path: ./artifacts
+
+    - name: Get current date and time
+      id: date
+      run: |
+        echo "datetime=$(date +'%d/%m/%Y %I:%M %p')" >> $GITHUB_OUTPUT
+        echo "tag=$(date +'%Y%m%d-%H%M%S')" >> $GITHUB_OUTPUT
+
+    - name: Move artifacts to release directory
+      run: |
+        mkdir -p release
+        find ./artifacts -name "*.zip" -exec mv {} ./release/ \;
+        ls -la ./release
+
+    - name: Create Release
+      uses: softprops/action-gh-release@v1
+      with:
+        tag_name: ${{ steps.date.outputs.tag }}
+        name: Release ${{ steps.date.outputs.datetime }}
+        body: |
+          ## Twitch Chat Reader - Build ${{ steps.date.outputs.datetime }}
+          
+          Automated build for all platforms.
+          
+          ### Downloads:
+          - `twitchchat-windows.zip` - Windows (x64)
+          - `twitchchat-linux.zip` - Linux (x64)
+          - `twitchchat-macos.zip` - macOS (x64)
+          
+          ### What's included:
+          - Compiled executable
+          - twitchchat.html (web overlay template)
+          - twitchchat.css (styling for web overlay)
+          
+          ### Usage:
+          1. Extract the ZIP file
+          2. Run the executable
+          3. Follow the prompts to connect to Twitch
+          
+          ### Features:
+          - Auto-saves OAuth token for reuse
+          - Terminal mode with interactive chat
+          - Web overlay mode for OBS
+          - Blacklist support (create `blacklist.txt`)
+          - Press 'q' to quit gracefully
+        files: |
+          ./release/*.zip
+        draft: false
+        prerelease: false
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

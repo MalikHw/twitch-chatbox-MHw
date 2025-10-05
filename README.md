@@ -6,18 +6,19 @@ get ur access token by:
 1. open [twitchtokengenerator](https://twitchtokengenerator.com/)
 2. tap **Uhhhh what? Just take me to the site.**
 3. Scroll to **Available Token Scopes**
-4. enable the one that contains `chat:read`
+4. enable the ones that contains `chat:read` and `chat:write`
 5. Scroll down and click **Generate Token**
 6. It will open a twitch page to authorize, just login
 7. Prove u ain't ChatGPT 💀
 8. on the **Generated Tokens**, copy Access Token to a safe file
 
-9. Everytime you run the app, paste it, put ur channel name, put the channel to Monitor (ofc put yours or ishowspeed's or whatever), GG
+9. Everytime you run the app, paste it(only once), put ur channel name, put the channel to Monitor (ofc put yours or ishowspeed's or whatever),
+10. Profit
 
 ## Monitor Modes
 ### Termianl:
 - every message in chat will appear on terminal window
-- GG
+- Profit
 
 ### Host:
 - if you want it as a chatbox overlay for OBS or whatever:
