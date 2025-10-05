@@ -65,6 +65,7 @@ int sockfd = -1;
 ChatBuffer chat_buffer = {.count = 0};
 int running = 1;
 int display_mode = 0;
+int menu_mode = 0; // 0 = chat, 1 = menu
 char target_channel[MAX_USERNAME];
 char my_nickname[MAX_USERNAME];
 char* blacklist_words[MAX_BLACKLIST_WORDS];
