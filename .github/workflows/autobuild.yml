@@ -57,7 +57,7 @@ jobs:
 
     - name: Build
       run: |
-        gcc -o twitchchat.exe twitchchat.c -lws2_32 -lpthread -Wall
+        gcc -o twitchchat.exe twitchchat.c -lws2_32 -Wall -D_WIN32_WINNT=0x0600
       shell: bash
 
     - name: Create distribution package
