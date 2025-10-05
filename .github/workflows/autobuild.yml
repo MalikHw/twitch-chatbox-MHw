@@ -80,43 +80,8 @@ jobs:
         name: twitchchat-windows
         path: twitchchat-windows.zip
 
-  build-macos:
-    name: Build for macOS
-    runs-on: macos-latest
-
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-
-    - name: Set up build environment
-      run: |
-        brew install gcc
-
-    - name: Build
-      run: |
-        gcc -o twitchchat-macos twitchchat.c -pthread -Wall
-        chmod +x twitchchat-macos
-
-    - name: Create distribution package
-      run: |
-        mkdir -p dist
-        cp twitchchat-macos dist/
-        cp twitchchat.html dist/
-        cp twitchchat.css dist/
-
-    - name: Create ZIP archive
-      run: |
-        cd dist
-        zip -r ../twitchchat-macos.zip *
-
-    - name: Upload artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: twitchchat-macos
-        path: twitchchat-macos.zip
-
   release:
-    needs: [build-linux, build-windows, build-macos]
+    needs: [build-linux, build-windows]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -160,12 +125,11 @@ jobs:
         body: |
           ## Twitch Chat Reader - Build ${{ steps.date.outputs.datetime }}
           
-          Automated build for all platforms.
+          Automated build for Linux and Windows.
           
           ### Downloads (check what's available):
           - `twitchchat-windows.zip` - Windows (x64)
           - `twitchchat-linux.zip` - Linux (x64)
-          - `twitchchat-macos.zip` - macOS (x64)
           
           ### What's included:
           - Compiled executable
