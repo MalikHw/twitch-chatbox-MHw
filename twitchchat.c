@@ -1,4 +1,7 @@
-#include <stdio.h>
+#ifdef _WIN32
+DWORD WINAPI web_server_thread(LPVOID arg) {
+#else
+void* web_server#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
@@ -10,7 +13,6 @@
     #include <winsock2.h>
     #include <ws2tcpip.h>
     #include <windows.h>
-    #pragma comment(lib, "ws2_32.lib")
     #define close closesocket
     typedef int socklen_t;
 #else
@@ -49,7 +51,11 @@ typedef struct {
 typedef struct {
     ChatMessage messages[MAX_MESSAGES];
     int count;
+#ifdef _WIN32
+    HANDLE lock;
+#else
     pthread_mutex_t lock;
+#endif
 } ChatBuffer;
 
 // Global variables (yeah, globals are kinda shit but fuck it, this works)
@@ -67,26 +73,19 @@ char my_nickname[MAX_USERNAME];
 char* blacklist_words[MAX_BLACKLIST_WORDS];
 int blacklist_count = 0;
 
-#ifdef _WIN32
-HANDLE mutex;
-#define pthread_mutex_t HANDLE
-#define pthread_mutex_lock(m) WaitForSingleObject(*m, INFINITE)
-#define pthread_mutex_unlock(m) ReleaseMutex(*m)
-#define pthread_mutex_init(m, attr) (*m = CreateMutex(NULL, FALSE, NULL))
-#define pthread_t HANDLE
-#define pthread_create(thread, attr, func, arg) ((*thread = CreateThread(NULL, 0, (LPTHREAD_START_ROUTINE)func, arg, 0, NULL)) == NULL)
-#define pthread_join(thread, retval) WaitForSingleObject(thread, INFINITE)
-#define sleep(x) Sleep((x) * 1000)
-#define usleep(x) Sleep((x) / 1000)
-#endif
-
 // Function declarations
 int connect_to_twitch(const char* oauth, const char* nickname, const char* channel);
+#ifdef _WIN32
+DWORD WINAPI read_chat_thread(LPVOID arg);
+DWORD WINAPI input_thread(LPVOID arg);
+DWORD WINAPI web_server_thread(LPVOID arg);
+#else
 void* read_chat_thread(void* arg);
 void* input_thread(void* arg);
+void* web_server_thread(void* arg);
+#endif
 void parse_message(const char* raw_msg);
 void display_terminal();
-void* web_server_thread(void* arg);
 void extract_badges(const char* tags, int* is_broadcaster, int* is_mod, int* is_sub, int* is_vip);
 char* extract_tag_value(const char* tags, const char* key);
 void save_config(const char* oauth, const char* nickname);
@@ -98,7 +97,7 @@ void send_chat_message(const char* message);
 
 void init_chat_buffer() {
 #ifdef _WIN32
-    mutex = CreateMutex(NULL, FALSE, NULL);
+    chat_buffer.lock = CreateMutex(NULL, FALSE, NULL);
 #else
     pthread_mutex_init(&chat_buffer.lock, NULL);
 #endif
@@ -151,7 +150,11 @@ void add_message(const char* username, const char* message, int is_broadcaster,
         return;
     }
     
+#ifdef _WIN32
+    WaitForSingleObject(chat_buffer.lock, INFINITE);
+#else
     pthread_mutex_lock(&chat_buffer.lock);
+#endif
     
     if (chat_buffer.count >= MAX_MESSAGES) {
         // Shift messages (out with the old shit)
@@ -170,7 +173,11 @@ void add_message(const char* username, const char* message, int is_broadcaster,
     msg->timestamp = time(NULL);
     chat_buffer.count++;
     
+#ifdef _WIN32
+    ReleaseMutex(chat_buffer.lock);
+#else
     pthread_mutex_unlock(&chat_buffer.lock);
+#endif
 }
 
 // Save config so we don't have to enter this shit every damn time
@@ -303,7 +310,11 @@ void parse_message(const char* raw_msg) {
     }
 }
 
+#ifdef _WIN32
+DWORD WINAPI read_chat_thread(LPVOID arg) {
+#else
 void* read_chat_thread(void* arg) {
+#endif
     char buffer[BUFFER_SIZE];
     
     while (running) {
@@ -323,7 +334,11 @@ void* read_chat_thread(void* arg) {
         }
     }
     
+#ifdef _WIN32
+    return 0;
+#else
     return NULL;
+#endif
 }
 
 // Send a message to chat (if you wanna talk back)
@@ -334,7 +349,11 @@ void send_chat_message(const char* message) {
 }
 
 // Input thread for terminal mode (so you can type shit)
+#ifdef _WIN32
+DWORD WINAPI input_thread(LPVOID arg) {
+#else
 void* input_thread(void* arg) {
+#endif
     char input[MAX_MESSAGE];
     
     while (running && display_mode == 0) {
@@ -365,7 +384,11 @@ void* input_thread(void* arg) {
         display_terminal();
     }
     
+#ifdef _WIN32
+    return 0;
+#else
     return NULL;
+#endif
 }
 
 int connect_to_twitch(const char* oauth, const char* nickname, const char* channel) {
@@ -436,7 +459,11 @@ void display_terminal() {
     printf("=== Twitch Chat: #%s ===\n", target_channel);
     printf("(Press 'q' and Enter to quit)\n\n");
     
+#ifdef _WIN32
+    WaitForSingleObject(chat_buffer.lock, INFINITE);
+#else
     pthread_mutex_lock(&chat_buffer.lock);
+#endif
     
     for (int i = 0; i < chat_buffer.count; i++) {
         ChatMessage* msg = &chat_buffer.messages[i];
@@ -451,18 +478,35 @@ void display_terminal() {
         printf(": \033[0;36m%s\033[0m\n", msg->message);
     }
     
+#ifdef _WIN32
+    ReleaseMutex(chat_buffer.lock);
+#else
     pthread_mutex_unlock(&chat_buffer.lock);
+#endif
     printf("\n");
 }
 
+#ifdef _WIN32
+DWORD WINAPI web_server_thread(LPVOID arg) {
+#else
 void* web_server_thread(void* arg) {
-    int server_fd, new_socket;
-    struct sockaddr_in address;
+#endif
+#ifdef _WIN32
+    SOCKET server_fd, new_socket;
     int opt = 1;
+#else
+    int server_fd, new_socket;
+    int opt = 1;
+#endif
+    struct sockaddr_in address;
     int addrlen = sizeof(address);
     
     server_fd = socket(AF_INET, SOCK_STREAM, 0);
+#ifdef _WIN32
+    setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, (const char*)&opt, sizeof(opt));
+#else
     setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+#endif
     
     address.sin_family = AF_INET;
     address.sin_addr.s_addr = INADDR_ANY;
@@ -488,7 +532,11 @@ void* web_server_thread(void* arg) {
         if (activity <= 0) continue;
         
         new_socket = accept(server_fd, (struct sockaddr*)&address, (socklen_t*)&addrlen);
+#ifdef _WIN32
+        if (new_socket == INVALID_SOCKET) continue;
+#else
         if (new_socket < 0) continue;
+#endif
         
         char request[1024];
         recv(new_socket, request, sizeof(request), 0);
@@ -511,7 +559,11 @@ void* web_server_thread(void* arg) {
             // Serve HTML with messages
             char response[8192];
             
+#ifdef _WIN32
+            WaitForSingleObject(chat_buffer.lock, INFINITE);
+#else
             pthread_mutex_lock(&chat_buffer.lock);
+#endif
             
             char messages_html[6144] = "";
             for (int i = 0; i < chat_buffer.count; i++) {
@@ -530,7 +582,11 @@ void* web_server_thread(void* arg) {
                 strcat(messages_html, msg_line);
             }
             
+#ifdef _WIN32
+            ReleaseMutex(chat_buffer.lock);
+#else
             pthread_mutex_unlock(&chat_buffer.lock);
+#endif
             
             // Read HTML template
             FILE* html_file = fopen(HTML_FILE, "r");
