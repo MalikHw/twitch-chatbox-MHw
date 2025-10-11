@@ -190,7 +190,7 @@ int main(int argc, char* argv[]) {
     cleanup_and_exit();
     
     return 0;
-} _WIN32
+}
     #include <winsock2.h>
     #include <ws2tcpip.h>
     #include <windows.h>
@@ -974,11 +974,3 @@ void cleanup_and_exit() {
         send(sockfd, quit_msg, strlen(quit_msg), 0);
         
 #ifdef _WIN32
-        Sleep(500);
-#else
-        usleep(500000);
-#endif
-        close(sockfd);
-    }
-    
-#ifdef
