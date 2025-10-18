@@ -31,8 +31,6 @@
 #define MAX_MESSAGE 512
 #define CONFIG_FILE ".twitch_config"
 #define BLACKLIST_FILE "blacklist.txt"
-#define HTML_FILE "twitchchat.html"
-#define CSS_FILE "twitchchat.css"
 #define MAX_BLACKLIST_WORDS 1000
 
 typedef struct {
@@ -55,7 +53,7 @@ typedef struct {
 #endif
 } ChatBuffer;
 
-// Global variables (yeah, globals are kinda shit but fuck it, this works)
+// Global variables
 #ifdef _WIN32
 SOCKET sockfd = INVALID_SOCKET;
 #else
@@ -64,8 +62,6 @@ int sockfd = -1;
 
 ChatBuffer chat_buffer = {.count = 0};
 int running = 1;
-int display_mode = 0;
-int menu_mode = 0; // 0 = chat, 1 = menu
 char target_channel[MAX_USERNAME];
 char my_nickname[MAX_USERNAME];
 char* blacklist_words[MAX_BLACKLIST_WORDS];
@@ -76,11 +72,9 @@ int connect_to_twitch(const char* oauth, const char* nickname, const char* chann
 #ifdef _WIN32
 DWORD WINAPI read_chat_thread(LPVOID arg);
 DWORD WINAPI input_thread(LPVOID arg);
-DWORD WINAPI web_server_thread(LPVOID arg);
 #else
 void* read_chat_thread(void* arg);
 void* input_thread(void* arg);
-void* web_server_thread(void* arg);
 #endif
 void parse_message(const char* raw_msg);
 void display_terminal();
@@ -102,7 +96,7 @@ void init_chat_buffer() {
     chat_buffer.count = 0;
 }
 
-// Load blacklist from file (because we don't want to see that bullshit)
+// Load blacklist from file
 void load_blacklist() {
     FILE* f = fopen(BLACKLIST_FILE, "r");
     if (!f) return;
@@ -122,7 +116,7 @@ void load_blacklist() {
     printf("Loaded %d blacklisted words\n", blacklist_count);
 }
 
-// Check if message contains blacklisted words (filter the crap out)
+// Check if message contains blacklisted words
 int is_blacklisted(const char* message) {
     char msg_lower[MAX_MESSAGE];
     strncpy(msg_lower, message, MAX_MESSAGE - 1);
@@ -174,11 +168,11 @@ void add_message(const char* username, const char* message, int is_broadcaster,
 #endif
 }
 
-// Save config so we don't have to enter this shit every damn time
+// Save config
 void save_config(const char* oauth, const char* nickname) {
     FILE* f = fopen(CONFIG_FILE, "w");
     if (!f) {
-        perror("Couldn't save config, what the fuck");
+        perror("Couldn't save config");
         return;
     }
     
@@ -190,7 +184,7 @@ void save_config(const char* oauth, const char* nickname) {
 #endif
 }
 
-// Load saved config (lazy mode activated)
+// Load saved config
 int load_config(char* oauth, char* nickname) {
     FILE* f = fopen(CONFIG_FILE, "r");
     if (!f) return 0;
@@ -291,10 +285,7 @@ void parse_message(const char* raw_msg) {
     extract_badges(tags, &is_broadcaster, &is_mod, &is_sub, &is_vip);
     
     add_message(username, message, is_broadcaster, is_mod, is_sub, is_vip);
-    
-    if (display_mode == 0) {
-        display_terminal();
-    }
+    display_terminal();
 }
 
 #ifdef _WIN32
@@ -307,7 +298,7 @@ void* read_chat_thread(void* arg) {
     while (running) {
         int bytes = recv(sockfd, buffer, BUFFER_SIZE - 1, 0);
         if (bytes <= 0) {
-            printf("Connection lost, damn it\n");
+            printf("Connection lost\n");
             running = 0;
             break;
         }
@@ -341,7 +332,7 @@ void* input_thread(void* arg) {
 #endif
     char input[MAX_MESSAGE];
     
-    while (running && display_mode == 0) {
+    while (running) {
         printf("\033[%d;0H", 30);
         printf("\033[K");
         printf("Type message (or 'q' to quit): ");
@@ -390,13 +381,13 @@ int connect_to_twitch(const char* oauth, const char* nickname, const char* chann
 #else
     if (sockfd < 0) {
 #endif
-        perror("Error opening socket, fuck");
+        perror("Error opening socket");
         return -1;
     }
     
     server = gethostbyname(IRC_SERVER);
     if (server == NULL) {
-        fprintf(stderr, "Error: No such host, what the hell\n");
+        fprintf(stderr, "Error: No such host\n");
         return -1;
     }
     
@@ -406,7 +397,7 @@ int connect_to_twitch(const char* oauth, const char* nickname, const char* chann
     serv_addr.sin_port = htons(IRC_PORT);
     
     if (connect(sockfd, (struct sockaddr*)&serv_addr, sizeof(serv_addr)) < 0) {
-        perror("Error connecting, shit");
+        perror("Error connecting");
         return -1;
     }
     
@@ -464,147 +455,6 @@ void display_terminal() {
     printf("\n");
 }
 
-#ifdef _WIN32
-DWORD WINAPI web_server_thread(LPVOID arg) {
-#else
-void* web_server_thread(void* arg) {
-#endif
-#ifdef _WIN32
-    SOCKET server_fd, new_socket;
-    int opt = 1;
-#else
-    int server_fd, new_socket;
-    int opt = 1;
-#endif
-    struct sockaddr_in address;
-    int addrlen = sizeof(address);
-    
-    server_fd = socket(AF_INET, SOCK_STREAM, 0);
-#ifdef _WIN32
-    setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, (const char*)&opt, sizeof(opt));
-#else
-    setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
-#endif
-    
-    address.sin_family = AF_INET;
-    address.sin_addr.s_addr = INADDR_ANY;
-    address.sin_port = htons(5000);
-    
-    bind(server_fd, (struct sockaddr*)&address, sizeof(address));
-    listen(server_fd, 3);
-    
-    printf("Web server running on http://localhost:5000\n");
-    printf("Add this URL to OBS Browser Source\n");
-    printf("Press 'q' and Enter to quit\n\n");
-    
-    while (running) {
-        struct timeval tv;
-        tv.tv_sec = 1;
-        tv.tv_usec = 0;
-        
-        fd_set readfds;
-        FD_ZERO(&readfds);
-        FD_SET(server_fd, &readfds);
-        
-        int activity = select(server_fd + 1, &readfds, NULL, NULL, &tv);
-        if (activity <= 0) continue;
-        
-        new_socket = accept(server_fd, (struct sockaddr*)&address, (socklen_t*)&addrlen);
-#ifdef _WIN32
-        if (new_socket == INVALID_SOCKET) continue;
-#else
-        if (new_socket < 0) continue;
-#endif
-        
-        char request[1024];
-        recv(new_socket, request, sizeof(request), 0);
-        
-        if (strstr(request, "GET /twitchchat.css")) {
-            FILE* css_file = fopen(CSS_FILE, "r");
-            if (css_file) {
-                char css_response[8192];
-                char css_content[7000];
-                size_t css_size = fread(css_content, 1, sizeof(css_content) - 1, css_file);
-                css_content[css_size] = '\0';
-                fclose(css_file);
-                
-                snprintf(css_response, sizeof(css_response),
-                    "HTTP/1.1 200 OK\r\nContent-Type: text/css\r\n\r\n%s", css_content);
-                send(new_socket, css_response, strlen(css_response), 0);
-            }
-        } else {
-            char response[8192];
-            
-#ifdef _WIN32
-            WaitForSingleObject(chat_buffer.lock, INFINITE);
-#else
-            pthread_mutex_lock(&chat_buffer.lock);
-#endif
-            
-            char messages_html[6144] = "";
-            for (int i = 0; i < chat_buffer.count; i++) {
-                ChatMessage* msg = &chat_buffer.messages[i];
-                char badges[512] = "";
-                
-                if (msg->is_broadcaster) strcat(badges, "<i class=\"nf nf-fa-gear\"></i>");
-                if (msg->is_moderator) strcat(badges, "<i class=\"nf nf-fa-user_gear\"></i>");
-                if (msg->is_subscriber) strcat(badges, "<i class=\"nf nf-seti-sublime\"></i>");
-                if (msg->is_vip) strcat(badges, "<i class=\"nf nf-md-crown\"></i>");
-                
-                char msg_line[1024];
-                snprintf(msg_line, sizeof(msg_line),
-                    "<div class=\"message\"><span class=\"username\">%s</span>%s: <span class=\"text\">%s</span></div>\n",
-                    msg->username, badges, msg->message);
-                strcat(messages_html, msg_line);
-            }
-            
-#ifdef _WIN32
-            ReleaseMutex(chat_buffer.lock);
-#else
-            pthread_mutex_unlock(&chat_buffer.lock);
-#endif
-            
-            FILE* html_file = fopen(HTML_FILE, "r");
-            char html_template[2048];
-            if (html_file) {
-                size_t html_size = fread(html_template, 1, sizeof(html_template) - 1, html_file);
-                html_template[html_size] = '\0';
-                fclose(html_file);
-                
-                char* container_pos = strstr(html_template, "<!-- Messages will be inserted here -->");
-                if (container_pos) {
-                    *container_pos = '\0';
-                    snprintf(response, sizeof(response),
-                        "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n%s%s</div></body></html>",
-                        html_template, messages_html);
-                } else {
-                    snprintf(response, sizeof(response),
-                        "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n<html><body>%s</body></html>",
-                        messages_html);
-                }
-            } else {
-                snprintf(response, sizeof(response),
-                    "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n"
-                    "<!DOCTYPE html><html><head><meta http-equiv=\"refresh\" content=\"2\">"
-                    "<link rel=\"stylesheet\" href=\"twitchchat.css\"></head>"
-                    "<body><div class=\"chat-container\">%s</div></body></html>",
-                    messages_html);
-            }
-            
-            send(new_socket, response, strlen(response), 0);
-        }
-        
-        close(new_socket);
-    }
-    
-    close(server_fd);
-#ifdef _WIN32
-    return 0;
-#else
-    return NULL;
-#endif
-}
-
 void cleanup_and_exit() {
     printf("\n\nDisconnecting from Twitch IRC...\n");
     
@@ -640,9 +490,9 @@ void cleanup_and_exit() {
 }
 
 void print_help() {
-    printf("Twitch Chat Reader - C Edition\n");
-    printf("================================\n\n");
-    printf("This program connects to Twitch IRC and displays chat messages.\n\n");
+    printf("Twitch Chat Reader - Terminal Edition\n");
+    printf("======================================\n\n");
+    printf("This program connects to Twitch IRC and displays chat messages in your terminal.\n\n");
     printf("To get an OAuth token (choose one method):\n\n");
     printf("METHOD 1 - Quick & Easy (Recommended):\n");
     printf("  1. Visit: https://twitchtokengenerator.com/\n");
@@ -658,8 +508,8 @@ void print_help() {
     printf("  ./twitchchat --help       # Show this help\n\n");
     printf("Features:\n");
     printf("  - Auto-saves OAuth token for reuse\n");
-    printf("  - Terminal mode: Type messages, press 'q' to quit\n");
-    printf("  - Web mode: OBS-ready chat overlay\n");
+    printf("  - Type messages directly in chat\n");
+    printf("  - Press 'q' to quit\n");
     printf("  - Blacklist support: Create 'blacklist.txt' to filter words\n");
 }
 
@@ -670,7 +520,6 @@ int main(int argc, char* argv[]) {
     }
     
     char oauth[256], nickname[MAX_USERNAME], channel[MAX_USERNAME];
-    int mode;
     int use_saved = 0;
     
     if (argc == 1 || (argc > 1 && strcmp(argv[1], "--new-token") != 0)) {
@@ -712,17 +561,6 @@ int main(int argc, char* argv[]) {
         return 1;
     }
     
-    printf("\nDisplay Mode:\n");
-    printf("1. Terminal Display (interactive)\n");
-    printf("2. Web Chatbox (for OBS)\n");
-    printf("Choice: ");
-    if (scanf("%d", &mode) != 1 || (mode != 1 && mode != 2)) {
-        printf("Invalid choice\n");
-        return 1;
-    }
-    
-    display_mode = (mode == 2) ? 1 : 0;
-    
     load_blacklist();
     
     init_chat_buffer();
@@ -741,60 +579,27 @@ int main(int argc, char* argv[]) {
     
 #ifdef _WIN32
     HANDLE chat_thread = CreateThread(NULL, 0, read_chat_thread, NULL, 0, NULL);
+    HANDLE input_t = CreateThread(NULL, 0, input_thread, NULL, 0, NULL);
 #else
     pthread_t chat_thread;
+    pthread_t input_t;
     pthread_create(&chat_thread, NULL, read_chat_thread, NULL);
+    pthread_create(&input_t, NULL, input_thread, NULL);
 #endif
     
-    if (display_mode == 1) {
+    while (running) {
 #ifdef _WIN32
-        HANDLE web_thread = CreateThread(NULL, 0, web_server_thread, NULL, 0, NULL);
+        Sleep(1000);
 #else
-        pthread_t web_thread;
-        pthread_create(&web_thread, NULL, web_server_thread, NULL);
-#endif
-        
-        char input[10];
-        while (running) {
-            if (fgets(input, sizeof(input), stdin)) {
-                if (input[0] == 'q' || input[0] == 'Q') {
-                    running = 0;
-                    break;
-                }
-            }
-        }
-        
-#ifdef _WIN32
-        WaitForSingleObject(web_thread, INFINITE);
-#else
-        pthread_join(web_thread, NULL);
-#endif
-    } else {
-#ifdef _WIN32
-        HANDLE input_t = CreateThread(NULL, 0, input_thread, NULL, 0, NULL);
-#else
-        pthread_t input_t;
-        pthread_create(&input_t, NULL, input_thread, NULL);
-#endif
-        
-        while (running) {
-#ifdef _WIN32
-            Sleep(1000);
-#else
-            sleep(1);
-#endif
-        }
-        
-#ifdef _WIN32
-        WaitForSingleObject(input_t, INFINITE);
-#else
-        pthread_join(input_t, NULL);
+        sleep(1);
 #endif
     }
     
 #ifdef _WIN32
+    WaitForSingleObject(input_t, INFINITE);
     WaitForSingleObject(chat_thread, INFINITE);
 #else
+    pthread_join(input_t, NULL);
     pthread_join(chat_thread, NULL);
 #endif
     
